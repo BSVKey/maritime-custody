@@ -12,23 +12,38 @@
 //                       covers thousands of boxes; any one box can be proven aboard.
 //   maritime.outturn/1  signed by the consignee at destination: what was found, and whether the
 //                       container is accepted or claimed.
+import { randomBytes } from "node:crypto";
 import { signRecord } from "../lib/record.mjs";
 import { leafHash, buildTree, proof, verifyProof } from "../lib/merkle.mjs";
 
-const leaf = (s) => leafHash(Buffer.from(s, "utf8"));
+// Leaves are salted (salted-leaf/1): each item gets 16 random bytes, and leaves are ordered by
+// their salted hash. Without the salt, the sibling hashes in one item's proof could be matched
+// against guessed values to reveal the items next to it. The salt travels only in that item's
+// own proof. saltOf(key) can be supplied for reproducible commitments.
+export const LEAF_SCHEME = "salted-leaf/1";
+const SALT_RE = /^[0-9a-f]{32}$/;
+const randomSalt = () => randomBytes(16).toString("hex");
+const saltedLeaf = (salt, s) => leafHash(Buffer.from(`${salt}|${s}`, "utf8"));
+function commitSalted(keys, saltOf = randomSalt) {
+  const entries = keys.map((key) => {
+    const salt = saltOf(key);
+    if (!SALT_RE.test(salt)) throw new Error("salt must be 32 lowercase hex characters");
+    return { key, salt, leaf: saltedLeaf(salt, key) };
+  }).sort((a, b) => (a.leaf < b.leaf ? -1 : a.leaf > b.leaf ? 1 : 0));
+  const tree = buildTree(entries.map((e) => e.leaf));
+  return { root: tree.root, count: entries.length, scheme: LEAF_SCHEME, keys: entries.map((e) => e.key), salts: entries.map((e) => e.salt), tree };
+}
+const saltedProof = (c, key) => { const i = c.keys.indexOf(key); return i < 0 ? null : { index: i, salt: c.salts[i], branch: proof(c.tree, i) }; };
+const saltedMember = (root, count, key, p) => !!p && SALT_RE.test(p.salt) && p.index >= 0 && p.index < count && verifyProof(saltedLeaf(p.salt, key), p.branch, p.index, root);
 
 // Commit a set of strings (packing-list lines, or container ids aboard) as a Merkle root.
-export function commitSet(items) {
-  const keys = [...new Set(items)].sort();
+export function commitSet(items, { saltOf } = {}) {
+  const keys = [...new Set(items)];
   if (keys.length === 0) throw new Error("commitSet: empty set");
-  const tree = buildTree(keys.map(leaf));
-  return { root: tree.root, count: keys.length, keys, tree };
+  return commitSalted(keys, saltOf);
 }
-export function memberProof(commitment, item) {
-  const i = commitment.keys.indexOf(item);
-  return i < 0 ? null : { index: i, branch: proof(commitment.tree, i) };
-}
-export const isMember = (root, count, item, p) => !!p && p.index >= 0 && p.index < count && verifyProof(leaf(item), p.branch, p.index, root);
+export const memberProof = (commitment, item) => saltedProof(commitment, item);
+export const isMember = (root, count, item, p) => saltedMember(root, count, item, p);
 
 // Packing-list line: one string per line so any line can be proven without the rest.
 export const cargoLine = (l) => `${l.line}|${l.description}|${l.packages}|${l.grossKg}`;

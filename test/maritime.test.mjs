@@ -85,3 +85,13 @@ test("membership proofs: a packing-list line and a box aboard", () => {
   assert.equal(isMember(c.root, c.count, cargoLine(cargo[1]), memberProof(c, cargoLine(cargo[1]))), true);
   assert.equal(isMember(c.root, c.count, cargoLine({ ...cargo[1], packages: 201 }), memberProof(c, cargoLine(cargo[1]))), false);
 });
+
+test("a membership proof does not give away the items beside it", async () => {
+  const { leafHash } = await import("../lib/merkle.mjs");
+  const ids = Array.from({ length: 8 }, (_, i) => `MSKU${String(1000000 + i)}`);
+  const c = commitSet(ids);
+  const p = memberProof(c, ids[3]);
+  assert.equal(ids.map((x) => leafHash(Buffer.from(x, "utf8"))).includes(p.branch[0]), false);
+  assert.equal(isMember(c.root, c.count, ids[3], p), true);
+  assert.equal(isMember(c.root, c.count, ids[3], { ...p, salt: undefined }), false);
+});

@@ -60,7 +60,7 @@ box into a claim.
 | `maritime.outturn/1` | the consignee | what was found at destination, the decision (accept or claim) and the liable parties |
 
 Any packing-list line, and any container aboard at a given contact, can be proven with a
-short inclusion proof without revealing the rest. All records use canonical JSON, a
+short inclusion proof without revealing the rest. Leaves are salted, so the sibling hashes in one proof cannot be matched against guessed container numbers or cargo lines. All records use canonical JSON, a
 SHA-256 content id and an Ed25519 signature.
 
 ## Rules the verifier applies
